@@ -14,22 +14,41 @@ func CheckError(err error) {
 
 
 type Message struct {
-    TokenID          int        `json:"id"`         //целое число, id токена
-    Msgtype          int        `json:"msgtype"`    //тип сообщения
-    FromID           int        `json:"from"`       //id узла, отправившего сообщение
-    ToID             int        `json:"to"`         //id узла, которому предназначено сообщение
-    Data             string     `json:"data"`       //строка, содрежащая данные
+    Type_         string     `json:"type"`         //тип сообщения
+    Dst_          int        `json:"dst"`          //получатель
+    Data_         string     `json:"data"`         //строка, содрежащая данные
+}
+
+type DataMessage struct {
+    Type_         string     `json:"type"`         //тип сообщения
+    Src_          int        `json:"src"`          //отправитель
+    Dst_          int        `json:"dst"`          //получатель
+    Data_         string     `json:"data"`         //строка, содрежащая данные
 }
 
 
-func (msg Message) ToJson() []byte {
+func (msg Message) ToJsonMsg() []byte {
     buf, err := json.Marshal(msg)
     CheckError(err)
     return buf
 }
 
-func FromJson(buffer []byte) Message {
+func FromJsonMsg(buffer []byte) Message {
 	var msg Message
+    err := json.Unmarshal(buffer, &msg)
+    CheckError(err)
+    return msg
+}
+
+
+func (msg DataMessage) ToJsonDataMsg() []byte {
+    buf, err := json.Marshal(msg)
+    CheckError(err)
+    return buf
+}
+
+func FromJsonDataMsg(buffer []byte) DataMessage {
+    var msg DataMessage
     err := json.Unmarshal(buffer, &msg)
     CheckError(err)
     return msg

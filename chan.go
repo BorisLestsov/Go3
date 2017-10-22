@@ -20,10 +20,8 @@ func main() {
         LeftID := ((i-1)%NProc+NProc)%NProc
         RightID := ((i+1)%NProc+NProc)%NProc
         LeftPort  := BasePort+((i-1)%NProc+NProc)%NProc
-        LeftMaintPort  := BaseMaintPort+((i-1)%NProc+NProc)%NProc
         RightPort  := BasePort+((i+1)%NProc+NProc)%NProc
-        RightMaintPort  := BaseMaintPort+((i+1)%NProc+NProc)%NProc
-        go proc(MyID, MyPort, MyMaintPort, LeftID, LeftPort, LeftMaintPort, RightID, RightPort, RightMaintPort, quitCh)
+        go proc(MyID, MyPort, MyMaintPort, LeftID, LeftPort, RightID, RightPort, quitCh)
     }
 
     for i := 0; i < NProc; i++ {

@@ -27,8 +27,8 @@ func main() {
     data := "hello"
     buffer := make([]byte, 4096)
 
-    m := msg.Message{TokenID: -1, Msgtype: 1, FromID: -1, ToID: 3, Data: data}
-    buffer = m.ToJson()
+    m := msg.Message{Type_: "send", Dst_: 2, Data_: data}
+    buffer = m.ToJsonMsg()
 
     _,err = MyConn.WriteToUDP(buffer, ToAddr)
     msg.CheckError(err)
