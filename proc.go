@@ -81,28 +81,41 @@ func proc(MyID int,
             case m = <- dataCh: {}
             case m = <- maintCh: {}
         }
-        fmt.Println(MyAddr, "Received ", m)
-        
         
         if m.Type_ == "token" {
             // Ordinary message
             m_data := msg.FromJsonDataMsg([]byte(m.Data_))
             if m.Dst_ == MyID {
-                fmt.Println(MyAddr, "Mine!", m)
                 switch m_data.Type_ {
                     case "conf": {
                         //got conformation, refresh token
+                        fmt.Println("node", 
+                                    MyID, 
+                                    ": received token from node", 
+                                    LeftID, 
+                                    "with delivery confirmation from node", 
+                                    m_data.Src_, 
+                                    ", sending token to node", 
+                                    RightID)
                         init_data_m := msg.DataMessage{Type_: "empty", Dst_: -1, Data_: ""}
                         m = msg.Message{Type_: "token", Dst_: -1, Data_: string(init_data_m.ToJsonDataMsg())}
+                        
                     } 
                     case "send": {
+                        fmt.Println("node", 
+                                    MyID, 
+                                    ": received token from node", 
+                                    LeftID, 
+                                    "with data from node", 
+                                    m_data.Src_, 
+                                    "(data =`", m_data.Data_, "`),",
+                                    "sending token to node", 
+                                    RightID)
                         // need to send conformation
                         conformation_m := msg.DataMessage{Type_: "conf", Dst_: m_data.Src_, Src_: MyID, Data_: ""}
                         m = msg.Message{Type_: "token", Dst_: m_data.Src_, Data_: string(conformation_m.ToJsonDataMsg())}
                     }
                 }
-                //quitCh <- struct{}{}
-                //return
             } else if m.Dst_ == -1 {
                 select {
                     case tmp := <-taskCh:
@@ -111,6 +124,15 @@ func proc(MyID int,
                         m = msg.Message{Type_: "token", Dst_: tmp.Dst_, Data_: string(m_data.ToJsonDataMsg())}
                     default:
                         //pass token further
+                        fmt.Println("node", 
+                                    MyID, 
+                                    ": received token from node", 
+                                    LeftID, 
+                                    "from node", 
+                                    m_data.Src_, 
+                                    ", sending token to node", 
+                                    RightID)
+                        
                 }
             }
             buffer = m.ToJsonMsg()
@@ -122,7 +144,11 @@ func proc(MyID int,
             //Maintance message
             switch m.Type_{
                 case "send":
-                    fmt.Println("send")
+                    fmt.Println("node", 
+                                MyID, 
+                                ": received service message:",
+                                string(m.ToJsonMsg()))
+
                     taskCh <- m
                 case "terminate":
                     fmt.Println("terminate")
