@@ -8,7 +8,7 @@ import (
 
 func main() { 
     quitCh := make(chan struct{})
-    NProc := 3
+    NProc := 5
     BasePort := 30000
     BaseMaintPort := 40000
 
@@ -17,8 +17,8 @@ func main() {
     	MyID := i
         MyPort := BasePort+i
         MyMaintPort := BaseMaintPort+i
-        LeftID := i+1
-        RightID := i-1
+        LeftID := ((i-1)%NProc+NProc)%NProc
+        RightID := ((i+1)%NProc+NProc)%NProc
         LeftPort  := BasePort+((i-1)%NProc+NProc)%NProc
         LeftMaintPort  := BaseMaintPort+((i-1)%NProc+NProc)%NProc
         RightPort  := BasePort+((i+1)%NProc+NProc)%NProc
@@ -26,7 +26,9 @@ func main() {
         go proc(MyID, MyPort, MyMaintPort, LeftID, LeftPort, LeftMaintPort, RightID, RightPort, RightMaintPort, quitCh)
     }
 
-    <-quitCh
+    for i := 0; i < NProc; i++ {
+	    <-quitCh
+	}
     time.Sleep(time.Millisecond * 100)
 
 }

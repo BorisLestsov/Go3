@@ -14,11 +14,11 @@ func CheckError(err error) {
 
 
 type Message struct {
-    Id          int        `json:"id"`         //целое число, id сообщения
-    Msgtype     int        `json:"msgtype"`    //тип сообщения (multicast, notication)
-    Sender      int        `json:"sender"`     //номер узла, отправляющего сообщение
-    Origin      int        `json:"origin"`     //номер узла, отправившего исходное сообщение
-    Data        string     `json:"data"`       //строка, содрежащая данные
+    TokenID          int        `json:"id"`         //целое число, id токена
+    Msgtype          int        `json:"msgtype"`    //тип сообщения
+    FromID           int        `json:"from"`       //id узла, отправившего сообщение
+    ToID             int        `json:"to"`         //id узла, которому предназначено сообщение
+    Data             string     `json:"data"`       //строка, содрежащая данные
 }
 
 
