@@ -30,16 +30,30 @@ func updateProcList(list *string, id int){
 
 func maxProcID(list string) int {
     strList := strings.Split(list, "@")
-    var min int
+    var max int
     for _, e := range strList {
         val, err := strconv.Atoi(e)
         msg.CheckError(err)
-        if val < min {
-            min = val
+        if val > max {
+            max = val
         }
     }
-    return min
+    return max
 } 
+
+
+func isProcInList(list string, procID int) bool {
+    strList := strings.Split(list, "@")
+    for _, e := range strList {
+        val, err := strconv.Atoi(e)
+        msg.CheckError(err)
+        if val == procID {
+            return true
+        }
+    }
+    return false
+} 
+
 
 
 
@@ -76,20 +90,26 @@ func ManageConn(Conn *net.UDPConn,
 
 
 func proc(MyID int, 
-		  MyPort int,
-		  MyMaintPort int, 
-		  LeftID int, 
-		  LeftPort int, 
-		  RightID int, 
-		  RightPort int, 
-		  quitCh chan struct{}) {
+          NProc int,
+          PortArr []int,
+          MaintArr []int, 
+          quitCh chan struct{}) {
+
+    //MyID := i
+    MyPort := PortArr[MyID]
+    MyMaintPort := MaintArr[MyID]
+    LeftID := ((MyID-1)%NProc+NProc)%NProc
+    RightID := ((MyID+1)%NProc+NProc)%NProc
+    LeftPort  := PortArr[LeftID]
+    RightPort  := PortArr[RightID]
+
     MyAddr,err := net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(MyPort))
     msg.CheckError(err)
     MyMaintAddr,err := net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(MyMaintPort))
     msg.CheckError(err)
- 
-    //LeftAddr,err := net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(LeftPort))
-    //msg.CheckError(err)
+
+    LeftAddr,err := net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(LeftPort))
+    msg.CheckError(err)
 
     RightAddr,err := net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(RightPort))
     msg.CheckError(err)
@@ -100,7 +120,7 @@ func proc(MyID int,
     msg.CheckError(err)
 
     if  MyID == 0 {
-    	// init transmission
+        // init transmission
         buffer := make([]byte, 4096)
 
         init_data_m := msg.DataMessage{Type_: "empty", Dst_: -1, Data_: ""}
@@ -117,24 +137,28 @@ func proc(MyID int,
     maintCh := make(chan msg.Message)
     taskCh := make(chan msg.Message, 4096)
 
-    go ManageConn(MyConn, dataCh, time.Second * 8)
+    go ManageConn(MyConn, dataCh, time.Second * time.Duration(NProc) * 2)
     go ManageConn(MyMaintConn, maintCh, time.Second * 0)
 
     buffer := make([]byte, 4096)
     var m msg.Message
     var needDrop bool
     needDrop = false
+    var terminated bool
+    terminated = false
 
     var noToken bool
     noToken = false
     var lastElectMsg msg.Message
-    var electFin bool
-    electFin = false
+    var electDoubled bool
+    electDoubled = false
 
+    var msgReturned bool
+    msgReturned = false
 
     for {
         select {
-            case m = <- dataCh: {}
+            case m = <- dataCh: {if terminated {continue}}
             case m = <- maintCh: {}
         }
         if m.Type_ == "token" {
@@ -217,41 +241,91 @@ func proc(MyID int,
                 }
                 needDrop = false
             } else {
-                fmt.Println("node", 
-                            MyID, 
-                            "AAAAAAAA")
+                fmt.Println(MyID, " discarded token")
             }
         } else if m.Type_ == "timeout" {
-            // timeout, initialize election
-            fmt.Println("node", 
-                        MyID, 
-                        ": received timeout, launching election")
-            
+            if !noToken {
+                // timeout, initialize election
+                fmt.Println("node", 
+                            MyID, 
+                            ": received timeout, launching election")
+                
 
-            //time.Sleep(time.Millisecond * 1000)
-            noToken = true
+                //time.Sleep(time.Millisecond * 1000)
+                noToken = true
 
-            //elect_m := msg.DataMessage{Type_: "elect", Dst_: RightID, Src_: MyID, Data_: ""}
-            m = msg.Message{Type_: "elect", Dst_: MyID, Data_: strconv.Itoa(MyID)}
-            lastElectMsg = m
-
-            buffer = m.ToJsonMsg()
-            time.Sleep(time.Millisecond * 1000)
-            _, err = MyConn.WriteToUDP(buffer, RightAddr)
-            msg.CheckError(err)
-            
-            //time.Sleep(time.Millisecond * 1000)
-            //_, err = MyConn.WriteToUDP(buffer, LeftAddr)
-            //msg.CheckError(err)
-        } else if m.Type_ == "elect" {
-            if m.Dst_ == MyID {
-                // election token came back from first round
-                m = msg.Message{Type_: "electfin", Dst_: MyID, Data_: m.Data_}
+                elect_m := msg.DataMessage{Type_: "elect", Dst_: RightID, Src_: MyID, Data_: strconv.Itoa(MyID)}
+                m = msg.Message{Type_: "elect", Dst_: MyID, Data_: string(elect_m.ToJsonDataMsg())}
+                lastElectMsg = m
 
                 buffer = m.ToJsonMsg()
                 time.Sleep(time.Millisecond * 1000)
                 _, err = MyConn.WriteToUDP(buffer, RightAddr)
                 msg.CheckError(err)
+
+                time.Sleep(time.Millisecond * 1000)
+                _, err = MyConn.WriteToUDP(buffer, LeftAddr)
+                msg.CheckError(err)
+
+                electDoubled = true
+                msgReturned = false
+            } else {
+                // timeout after initialized election => some proc died
+                m_res := msg.FromJsonDataMsg(([]byte)(lastElectMsg.Data_))
+                max := maxProcID(m_res.Data_)
+                for i := 0; i < NProc; i++ {
+                    if !isProcInList(m_res.Data_, LeftID) {
+                        LeftID = ((LeftID-1)%NProc+NProc)%NProc
+                        LeftPort = PortArr[LeftID]
+                        LeftAddr,err = net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(LeftPort))
+                        msg.CheckError(err)
+                        NProc -= 1
+                    }
+                    if !isProcInList(m_res.Data_, RightID) {
+                        RightID = ((RightID+1)%NProc+NProc)%NProc
+                        RightPort = PortArr[RightID]
+                        RightAddr,err = net.ResolveUDPAddr("udp","127.0.0.1:"+strconv.Itoa(RightPort))
+                        msg.CheckError(err)
+                        NProc -= 1
+                    }
+                }
+                if max == MyID && noToken {
+                    fmt.Println("node", 
+                                MyID, 
+                                ": generated token wow")
+                    // generate new token
+                    m_tmp := msg.DataMessage{Type_: "empty", Dst_: -1, Data_: ""}
+                    m = msg.Message{Type_: "token", Dst_: -1, Data_: string(m_tmp.ToJsonDataMsg())}
+                    buffer = m.ToJsonMsg()
+
+                    time.Sleep(time.Millisecond * 1000)
+                    _,err := MyConn.WriteToUDP(buffer, RightAddr)
+                    msg.CheckError(err)
+                }
+                noToken = false
+            }
+        } else if m.Type_ == "elect" {
+            lastElectMsg = m
+            if m.Dst_ == MyID {
+                if !msgReturned {
+                    m_tmp := msg.FromJsonDataMsg(([]byte)(m.Data_))
+                    msgReturned = true
+                    for i := 0; i < NProc; i++ {
+                        if !isProcInList(m_tmp.Data_, i) {
+                            msgReturned = false
+                            break
+                        }
+                    }
+                }
+                if msgReturned {
+                    // election token came back
+                    m = msg.Message{Type_: "electfin", Dst_: MyID, Data_: m.Data_}
+
+                    buffer = m.ToJsonMsg()
+                    time.Sleep(time.Millisecond * 1000)
+                    _, err = MyConn.WriteToUDP(buffer, RightAddr)
+                    msg.CheckError(err)
+                }
             } else {
                 // foreign elect token, pass further updated token
                 fmt.Println("node", 
@@ -260,50 +334,92 @@ func proc(MyID int,
                             LeftID, 
                             "with data:",
                             m)
-
                 noToken = true
 
-                updateProcList(&m.Data_, MyID)
-                //fmt.Println()
-                m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: m.Data_}
+                if !electDoubled {
+                    // duplicate elect token
+                     //fmt.Println()
+                    m_tmp := msg.FromJsonDataMsg([]byte(m.Data_))
+                    m_tmp.Src_ = MyID
+                    m_tmp.Dst_ = RightID
+                    updateProcList(&m_tmp.Data_, MyID)
+                    m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
 
-                buffer = m.ToJsonMsg()
-                time.Sleep(time.Millisecond * 1000)
-                _, err = MyConn.WriteToUDP(buffer, RightAddr)
-                msg.CheckError(err)
+                    buffer = m.ToJsonMsg()
+                    time.Sleep(time.Millisecond * 1000)
+                    _, err = MyConn.WriteToUDP(buffer, RightAddr)
+                    msg.CheckError(err)
+
+                    m_tmp.Dst_ = LeftID
+                    m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
+
+                    buffer = m.ToJsonMsg()
+                    time.Sleep(time.Millisecond * 1000)
+                    _, err = MyConn.WriteToUDP(buffer, LeftAddr)
+                    msg.CheckError(err)
+
+                    electDoubled = true
+                } else {
+                    // pass elect token further
+                    m_tmp := msg.FromJsonDataMsg([]byte(m.Data_))
+                    
+                    if m_tmp.Src_ == LeftID {                        
+                        m_tmp.Src_ = MyID
+                        m_tmp.Dst_ = RightID
+                        updateProcList(&m_tmp.Data_, MyID)
+                        m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
+
+                        buffer = m.ToJsonMsg()
+                        time.Sleep(time.Millisecond * 1000)
+                        _, err = MyConn.WriteToUDP(buffer, RightAddr)
+                        msg.CheckError(err)
+                    } else {
+                        m_tmp.Src_ = MyID
+                        m_tmp.Dst_ = LeftID
+                        updateProcList(&m_tmp.Data_, MyID)
+                        m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
+
+                        buffer = m.ToJsonMsg()
+                        time.Sleep(time.Millisecond * 1000)
+                        _, err = MyConn.WriteToUDP(buffer, LeftAddr)
+                        msg.CheckError(err)
+                    }
+                }
             }
         } else if m.Type_ == "electfin" {
-            // second round      
-            fmt.Println("node", 
-                        MyID, 
-                        ": received election token from node", 
-                        LeftID, 
-                        "with data:",
-                        m)
-            lastElectMsg = m
-            if m.Dst_ != MyID {
-                // pass final elect token further
-                buffer = m.ToJsonMsg()
-                time.Sleep(time.Millisecond * 1000)
-                _, err = MyConn.WriteToUDP(buffer, RightAddr)
-                msg.CheckError(err)
-            }
-            max := maxProcID(lastElectMsg.Data_)
-            if max == MyID && noToken {
+            // second round
+            if noToken {
+                msgReturned = true
                 fmt.Println("node", 
                             MyID, 
-                            ": generated token")
-                // generate new token
-                m_tmp := msg.DataMessage{Type_: "empty", Dst_: -1, Data_: ""}
-                m = msg.Message{Type_: "token", Dst_: -1, Data_: string(m_tmp.ToJsonDataMsg())}
-                buffer = m.ToJsonMsg()
+                            ": received election token from node", 
+                            LeftID, 
+                            "with data:",
+                            m)
+                lastElectMsg = m
+                if m.Dst_ != MyID {
+                    // pass electfin token further
+                    buffer = m.ToJsonMsg()
+                    time.Sleep(time.Millisecond * 1000)
+                    _, err = MyConn.WriteToUDP(buffer, RightAddr)
+                    msg.CheckError(err)
+                }
+                max := maxProcID(msg.FromJsonDataMsg(([]byte)(lastElectMsg.Data_)).Data_)
+                if max == MyID {
+                    fmt.Println("node", 
+                                MyID, 
+                                ": generated token")
+                    // generate new token
+                    m_tmp := msg.DataMessage{Type_: "empty", Dst_: -1, Data_: ""}
+                    m = msg.Message{Type_: "token", Dst_: -1, Data_: string(m_tmp.ToJsonDataMsg())}
+                    buffer = m.ToJsonMsg()
 
-                _,err := MyConn.WriteToUDP(buffer, RightAddr)
-                msg.CheckError(err)
+                    time.Sleep(time.Millisecond * 1000)
+                    _,err := MyConn.WriteToUDP(buffer, RightAddr)
+                    msg.CheckError(err)
+                }
+                noToken = false
             }
-            electFin = true
-            _ = electFin
-            noToken = false
         } else {
             //Maintance message
             fmt.Println("node", 
@@ -314,15 +430,26 @@ func proc(MyID int,
                 case "send":
                     taskCh <- m
                 case "terminate":
-                    fmt.Println("terminate")
+                    terminated = true                    
                 case "recover":
-                    fmt.Println("recover")
+                    terminated = false
                 case "drop":
                     taskCh <- m
                 default: 
                     fmt.Println("WTF")
             }
         }
+
+        // finally send the message from queue
+
+        // if !needDrop { 
+        //     buffer = m.ToJsonMsg()
+
+        //     time.Sleep(time.Millisecond * 1000)
+        //     _, err = MyConn.WriteToUDP(buffer, RightAddr)
+        //     msg.CheckError(err)
+        // }
+        // needDrop = false
     }
 
     <-quitCh
