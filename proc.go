@@ -149,16 +149,25 @@ func proc(MyID int,
 
     var noToken bool
     noToken = false
+    var generated bool
+    generated = false
     var lastElectMsg msg.Message
-    var electDoubled bool
-    electDoubled = false
-
+    electDoubled := make([]bool, NProc)
+    for i := range electDoubled {
+        electDoubled[i] = false
+    }
+ 
     var msgReturned bool
     msgReturned = false
 
     for {
         select {
-            case m = <- dataCh: {if terminated {continue}}
+            case m = <- dataCh: {if terminated {
+                fmt.Println(m)
+                continue
+                
+                }
+            }
             case m = <- maintCh: {}
         }
         if m.Type_ == "token" {
@@ -263,14 +272,24 @@ func proc(MyID int,
                 _, err = MyConn.WriteToUDP(buffer, RightAddr)
                 msg.CheckError(err)
 
+                elect_m = msg.DataMessage{Type_: "elect", Dst_: LeftID, Src_: MyID, Data_: strconv.Itoa(MyID)}
+                m = msg.Message{Type_: "elect", Dst_: MyID, Data_: string(elect_m.ToJsonDataMsg())}
+                lastElectMsg = m
+
+                buffer = m.ToJsonMsg()
                 time.Sleep(time.Millisecond * 1000)
                 _, err = MyConn.WriteToUDP(buffer, LeftAddr)
                 msg.CheckError(err)
 
-                electDoubled = true
+                for i := range electDoubled {
+                    electDoubled[i] = false
+                }
+                electDoubled[MyID] = true
                 msgReturned = false
+                generated = false
             } else {
                 // timeout after initialized election => some proc died
+                fmt.Println("node", MyID, ": some died")
                 m_res := msg.FromJsonDataMsg(([]byte)(lastElectMsg.Data_))
                 max := maxProcID(m_res.Data_)
                 for i := 0; i < NProc; i++ {
@@ -301,7 +320,10 @@ func proc(MyID int,
                     time.Sleep(time.Millisecond * 1000)
                     _,err := MyConn.WriteToUDP(buffer, RightAddr)
                     msg.CheckError(err)
+                } else {
+                    time.Sleep(time.Duration(NProc))
                 }
+
                 noToken = false
             }
         } else if m.Type_ == "elect" {
@@ -330,13 +352,14 @@ func proc(MyID int,
                 // foreign elect token, pass further updated token
                 fmt.Println("node", 
                             MyID, 
-                            ": received election token from node", 
-                            LeftID, 
+                            ": received election token", 
                             "with data:",
                             m)
-                noToken = true
+                if !generated {
+                    noToken = true
+                }
 
-                if !electDoubled {
+                if !electDoubled[m.Dst_] {
                     // duplicate elect token
                      //fmt.Println()
                     m_tmp := msg.FromJsonDataMsg([]byte(m.Data_))
@@ -344,6 +367,8 @@ func proc(MyID int,
                     m_tmp.Dst_ = RightID
                     updateProcList(&m_tmp.Data_, MyID)
                     m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
+
+                    lastElectMsg = m
 
                     buffer = m.ToJsonMsg()
                     time.Sleep(time.Millisecond * 1000)
@@ -358,7 +383,7 @@ func proc(MyID int,
                     _, err = MyConn.WriteToUDP(buffer, LeftAddr)
                     msg.CheckError(err)
 
-                    electDoubled = true
+                    electDoubled[m.Dst_] = true
                 } else {
                     // pass elect token further
                     m_tmp := msg.FromJsonDataMsg([]byte(m.Data_))
@@ -369,6 +394,8 @@ func proc(MyID int,
                         updateProcList(&m_tmp.Data_, MyID)
                         m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
 
+                        lastElectMsg = m
+
                         buffer = m.ToJsonMsg()
                         time.Sleep(time.Millisecond * 1000)
                         _, err = MyConn.WriteToUDP(buffer, RightAddr)
@@ -378,6 +405,8 @@ func proc(MyID int,
                         m_tmp.Dst_ = LeftID
                         updateProcList(&m_tmp.Data_, MyID)
                         m = msg.Message{Type_: "elect", Dst_: m.Dst_, Data_: string(m_tmp.ToJsonDataMsg())}
+
+                        lastElectMsg = m
 
                         buffer = m.ToJsonMsg()
                         time.Sleep(time.Millisecond * 1000)
@@ -392,8 +421,7 @@ func proc(MyID int,
                 msgReturned = true
                 fmt.Println("node", 
                             MyID, 
-                            ": received election token from node", 
-                            LeftID, 
+                            ": received election token", 
                             "with data:",
                             m)
                 lastElectMsg = m
@@ -405,7 +433,7 @@ func proc(MyID int,
                     msg.CheckError(err)
                 }
                 max := maxProcID(msg.FromJsonDataMsg(([]byte)(lastElectMsg.Data_)).Data_)
-                if max == MyID {
+                if max == MyID && !generated {
                     fmt.Println("node", 
                                 MyID, 
                                 ": generated token")
@@ -417,6 +445,7 @@ func proc(MyID int,
                     time.Sleep(time.Millisecond * 1000)
                     _,err := MyConn.WriteToUDP(buffer, RightAddr)
                     msg.CheckError(err)
+                    generated = true
                 }
                 noToken = false
             }

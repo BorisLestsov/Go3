@@ -10,8 +10,7 @@ import (
 func main() {
     var (
         FromPort = 60000
-        ToPort = 40000
-
+        ToPort = 40001
 
         )
 
@@ -27,7 +26,7 @@ func main() {
     data := "hello"
     buffer := make([]byte, 4096)
 
-    m := msg.Message{Type_: "terminate", Dst_: 2, Data_: data}
+    m := msg.Message{Type_: "drop", Dst_: 2, Data_: data}
     buffer = m.ToJsonMsg()
 
     _,err = MyConn.WriteToUDP(buffer, ToAddr)
