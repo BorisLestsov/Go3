@@ -59,31 +59,38 @@ func isProcInList(list string, procID int) bool {
 
 func ManageConn(Conn *net.UDPConn,
                 dataCh chan msg.Message,
-                timeout time.Duration) {
+                timeoutCh chan time.Duration) {
     var buffer = make([]byte, 4096)
     var m msg.Message
     //var data string
+    var timeout time.Duration
+    timeout = time.Duration(0)
 
-    
     for {
-        if timeout != 0 {
-            Conn.SetReadDeadline(time.Now().Add(timeout))
-        }
-        n,addr,err := Conn.ReadFromUDP(buffer)
-        _ = addr
-        if err != nil {
-            if e, ok := err.(net.Error); !ok || !e.Timeout() {
-                // not a timeout
-                panic(err)
-            } else {
-                m = msg.Message{Type_: "timeout", Dst_: 0, Data_: ""}               
+        select {
+            case timeout = <-timeoutCh: {}
+            default: {
+                if timeout != 0 {
+                    Conn.SetReadDeadline(time.Now().Add(timeout))
+                }
+                n,addr,err := Conn.ReadFromUDP(buffer)
+                _ = addr
+                if err != nil {
+                    if e, ok := err.(net.Error); !ok || !e.Timeout() {
+                        // not a timeout
+                        panic(err)
+                    } else {
+                        m = msg.Message{Type_: "timeout", Dst_: 0, Data_: ""}               
+                    }
+                } else {
+                    //data := string(buffer[0:n])
+                    //fmt.Println(data)
+                    m = msg.FromJsonMsg(buffer[0:n])
+                }
+                dataCh <- m   
             }
-        } else {
-            //data := string(buffer[0:n])
-            //fmt.Println(data)
-            m = msg.FromJsonMsg(buffer[0:n])
         }
-        dataCh <- m   
+       
     }
 
 }
@@ -136,9 +143,14 @@ func proc(MyID int,
     dataCh  := make(chan msg.Message)
     maintCh := make(chan msg.Message)
     taskCh := make(chan msg.Message, 4096)
+    timeoutCh := make(chan time.Duration, 1)
+    timeoutMaintCh := make(chan time.Duration, 1)
 
-    go ManageConn(MyConn, dataCh, time.Second * time.Duration(NProc) * 2)
-    go ManageConn(MyMaintConn, maintCh, time.Second * 0)
+    timeoutCh <- time.Duration(time.Second * time.Duration(NProc) * 2)
+    timeoutMaintCh <- time.Duration(time.Second * 0)
+
+    go ManageConn(MyConn, dataCh, timeoutCh)
+    go ManageConn(MyMaintConn, maintCh, timeoutMaintCh)
 
     buffer := make([]byte, 4096)
     var m msg.Message
@@ -308,7 +320,7 @@ func proc(MyID int,
                         NProc -= 1
                     }
                 }
-                if max == MyID && noToken {
+                if max == MyID && !generated {
                     fmt.Println("node", 
                                 MyID, 
                                 ": generated token wow")
@@ -320,8 +332,9 @@ func proc(MyID int,
                     time.Sleep(time.Millisecond * 1000)
                     _,err := MyConn.WriteToUDP(buffer, RightAddr)
                     msg.CheckError(err)
+                    generated = true
                 } else {
-                    time.Sleep(time.Duration(NProc))
+                    timeoutCh <- time.Second*time.Duration(NProc+1)
                 }
 
                 noToken = false
