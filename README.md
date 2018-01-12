@@ -1,4 +1,4 @@
-# Go3, Token Ring
+# Golang Token Ring distributed protocol implementation
 
 ## Usage:
 
